@@ -1,14 +1,11 @@
 #[derive(Debug)]
-pub struct ColumnDef {
-    pub name: String,
-    pub data_type: String,
-    pub constraints: Vec<String>,
+pub struct SelectStatement {
+    pub columns: Vec<String>,
+    pub table: String,
+    pub condition: Option<Expression>,
 }
 
 #[derive(Debug)]
-pub enum Statement {
-    CreateTable {
-        name: String,
-        columns: Vec<ColumnDef>,
-    },
+pub enum Expression {
+    Equals(String, i64),
 }
