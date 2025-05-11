@@ -1,64 +1,49 @@
-use crate::tokenizer::{Token, Tokenizer};
-use crate::ast::{Statement, ColumnDef};
+use crate::tokenizer::{Tokenizer, Token};
+use crate::ast::{SelectStatement, Expression};
 use crate::error::ParseError;
 
-pub fn parse_create_table(tokens: &mut Tokenizer) -> Result<Statement, ParseError> {
-    // CREATE
-    match tokens.next_token()? {
-        Token::Keyword(ref k) if k.eq_ignore_ascii_case("CREATE") => {}
-        _ => return Err(ParseError::ExpectedToken("CREATE".to_string())),
-    }
+pub fn parse_create_table(_tokenizer: &mut Tokenizer) -> Result<(), ParseError> {
+    Err(ParseError::Unsupported("CREATE TABLE not implemented".into()))
+}
 
-    // TABLE
-    match tokens.next_token()? {
-        Token::Keyword(ref k) if k.eq_ignore_ascii_case("TABLE") => {}
-        _ => return Err(ParseError::ExpectedToken("TABLE".to_string())),
-    }
+pub fn parse_select(tokenizer: &mut Tokenizer) -> Result<SelectStatement, ParseError> {
+    tokenizer.expect_keyword("SELECT").map_err(ParseError::TokenizerError)?;
 
-    // table name
-    let table_name = match tokens.next_token()? {
-        Token::Identifier(name) => name,
-        _ => return Err(ParseError::ExpectedIdentifier),
-    };
-
-    // (
-    if tokens.next_token()? != Token::LParen {
-        return Err(ParseError::ExpectedToken("(".to_string()));
-    }
-
+    // Parse column list
     let mut columns = Vec::new();
-
     loop {
-        // column name
-        let name = match tokens.next_token()? {
-            Token::Identifier(name) => name,
-            Token::RParen => break,
-            _ => return Err(ParseError::ExpectedIdentifier),
-        };
+        let col = tokenizer.expect_identifier().map_err(ParseError::TokenizerError)?;
+        columns.push(col);
 
-        // column type
-        let data_type = match tokens.next_token()? {
-            Token::Keyword(dt) => dt,
-            _ => return Err(ParseError::ExpectedType),
-        };
-
-        columns.push(ColumnDef {
-            name,
-            data_type,
-            constraints: vec![],
-        });
-
-        match tokens.peek_token()? {
-            Token::Comma => {
-                tokens.next_token()?; // consume comma
-            }
-            Token::RParen => {
-                tokens.next_token()?; // consume )
-                break;
-            }
-            other => return Err(ParseError::UnexpectedToken(format!("{:?}", other))),
+        if let Some(Token::Comma) = tokenizer.peek_token() {
+            tokenizer.next_token(); // consume comma
+        } else {
+            break;
         }
     }
 
-    Ok(Statement::CreateTable { name: table_name, columns })
+    tokenizer.expect_keyword("FROM").map_err(ParseError::TokenizerError)?;
+    let table = tokenizer.expect_identifier().map_err(ParseError::TokenizerError)?;
+
+    let condition = if let Some(Token::Keyword(k)) = tokenizer.peek_token() {
+        if k == "WHERE" {
+            tokenizer.next_token(); // consume WHERE
+            let column = tokenizer.expect_identifier().map_err(ParseError::TokenizerError)?;
+            tokenizer.expect_token(Token::Equal).map_err(ParseError::TokenizerError)?;
+            match tokenizer.next_token() {
+                Some(Token::Number(n)) => Some(Expression::Equals(column, *n)),
+                other => return Err(ParseError::TokenizerError(format!("Expected number, got {:?}", other))),
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok(SelectStatement {
+        columns,
+        table,
+        condition,
+    })
 }
