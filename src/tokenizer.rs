@@ -1,91 +1,114 @@
-use crate::error::ParseError;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    Identifier(String),
+
     Keyword(String),
-    LParen,
-    RParen,
+    Identifier(String),
+    Number(i64),
+    Symbol(char),
     Comma,
-    EOF,
+    Equal,
 }
 
-pub struct Tokenizer {
-    chars: Vec<char>,
+pub struct Tokenizer<'a> {
+    input: &'a str,
     pos: usize,
-    peeked: Option<Token>,
+    tokens: Vec<Token>,
+    index: usize,
 }
 
-impl Tokenizer {
-    pub fn new(input: &str) -> Self {
-        Self {
-            chars: input.chars().collect(),
-            pos: 0,
-            peeked: None,
-        }
-    }
+impl<'a> Tokenizer<'a> {
+    pub fn new(input: &'a str) -> Self {
+        let mut tokens = Vec::new();
+        let mut chars = input.chars().peekable();
 
-    pub fn next_token(&mut self) -> Result<Token, ParseError> {
-        if let Some(tok) = self.peeked.take() {
-            return Ok(tok);
-        }
-
-        self.skip_whitespace();
-
-        if self.pos >= self.chars.len() {
-            return Ok(Token::EOF);
-        }
-
-        let ch = self.chars[self.pos];
-
-        match ch {
-            '(' => {
-                self.pos += 1;
-                Ok(Token::LParen)
-            }
-            ')' => {
-                self.pos += 1;
-                Ok(Token::RParen)
-            }
-            ',' => {
-                self.pos += 1;
-                Ok(Token::Comma)
-            }
-            c if c.is_alphabetic() => {
-                let ident = self.read_while(|ch| ch.is_alphanumeric() || ch == '_');
-                let upper = ident.to_uppercase();
-                if matches!(upper.as_str(), "CREATE" | "TABLE" | "INT" | "VARCHAR") {
-                    Ok(Token::Keyword(upper))
-                } else {
-                    Ok(Token::Identifier(ident))
+        while let Some(&c) = chars.peek() {
+            if c.is_whitespace() {
+                chars.next();
+            } else if c == ',' {
+                tokens.push(Token::Comma);
+                chars.next();
+            } else if c == '=' {
+                tokens.push(Token::Equal);
+                chars.next();
+            } else if c == ';' {
+                chars.next();
+            } else if c.is_alphabetic() {
+                let mut ident = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_alphanumeric() || c == '_' {
+                        ident.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
+                let keyword = ident.to_uppercase();
+                if ["SELECT", "FROM", "WHERE", "CREATE", "TABLE"].contains(&keyword.as_str()) {
+                    tokens.push(Token::Keyword(keyword));
+                } else {
+                    tokens.push(Token::Identifier(ident));
+                }
+            } else if c.is_numeric() {
+                let mut number = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_numeric() {
+                        number.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                tokens.push(Token::Number(number.parse().unwrap()));
+            } else {
+                tokens.push(Token::Symbol(c));
+                chars.next();
             }
-            _ => Err(ParseError::UnexpectedChar(ch)),
+        }
+
+        Self {
+            input,
+            pos: 0,
+            tokens,
+            index: 0,
         }
     }
 
-    pub fn peek_token(&mut self) -> Result<Token, ParseError> {
-        if self.peeked.is_none() {
-            self.peeked = Some(self.next_token()?);
-        }
-        Ok(self.peeked.clone().unwrap())
+    pub fn peek_token(&self) -> Option<&Token> {
+        self.tokens.get(self.index)
     }
 
-    fn skip_whitespace(&mut self) {
-        while self.pos < self.chars.len() && self.chars[self.pos].is_whitespace() {
-            self.pos += 1;
+    pub fn next_token(&mut self) -> Option<&Token> {
+        let tok = self.tokens.get(self.index);
+        self.index += 1;
+        tok
+    }
+
+    pub fn expect_keyword(&mut self, expected: &str) -> Result<(), String> {
+        match self.next_token() {
+            Some(Token::Keyword(k)) if k == expected => Ok(()),
+            other => Err(format!("Expected keyword '{}', got {:?}", expected, other)),
         }
     }
 
-    fn read_while<F>(&mut self, test: F) -> String
-    where
-        F: Fn(char) -> bool,
-    {
-        let mut result = String::new();
-        while self.pos < self.chars.len() && test(self.chars[self.pos]) {
-            result.push(self.chars[self.pos]);
-            self.pos += 1;
+    pub fn expect_identifier(&mut self) -> Result<String, String> {
+        match self.next_token() {
+            Some(Token::Identifier(s)) => Ok(s.clone()),
+            other => Err(format!("Expected identifier, got {:?}", other)),
         }
-        result
+    }
+
+    pub fn expect_token(&mut self, expected: Token) -> Result<(), String> {
+        match self.next_token() {
+            Some(tok) if *tok == expected => Ok(()),
+            other => Err(format!("Expected token {:?}, got {:?}", expected, other)),
+        }
+    }
+
+    pub fn peek_keyword(&self) -> Option<String> {
+        if let Some(Token::Keyword(k)) = self.tokens.get(self.index) {
+            Some(k.clone())
+        } else {
+            None
+        }
     }
 }
